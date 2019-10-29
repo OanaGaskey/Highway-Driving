@@ -126,10 +126,10 @@ int main() {
             pos_y = car_y;
             angle = deg2rad(car_yaw);
             //go back one distance increment using angle
-            //pos_x2 = pos_x - dist_inc * cos(angle);
-            //pos_y2 = pos_y - dist_inc * sin(angle);
+            pos_x2 = pos_x - dist_inc * cos(angle);
+            pos_y2 = pos_y - dist_inc * sin(angle);
             // add last two points to spline list for better transition trajectory
-            //spline_xy.push_back({pos_x2,pos_y2});
+            spline_xy.push_back({pos_x2,pos_y2});
             spline_xy.push_back({pos_x,pos_y});
           } else {
             // get last point from previous path
@@ -140,13 +140,13 @@ int main() {
             pos_y2 = previous_path_y[path_size-2];
             angle = atan2(pos_y-pos_y2,pos_x-pos_x2);
             // add last two points to spline list for better transition trajectory
-            //spline_xy.push_back({pos_x2,pos_y2});
+            spline_xy.push_back({pos_x2,pos_y2});
             spline_xy.push_back({pos_x,pos_y});
           }
           
           // calculate spline points
           // starting point is the closest map waypoint to the end of previous path's end
-          start_point = ClosestWaypoint(pos_x, pos_y, map_waypoints_x, map_waypoints_y);
+          start_point = NextWaypoint(pos_x, pos_y, angle, map_waypoints_x, map_waypoints_y);
           // add 10 more points to the spline list
           // points should be aligned to the waypoints provided in the map and along the middle of the intended lane_id
           for (int i = 0; i < 10; ++i) {
@@ -162,7 +162,7 @@ int main() {
           s.set_points(spline_x_vals,spline_y_vals);
           
           //calculate car trajectory points
-          next_s = end_path_s;
+          //next_s = end_path_s;
 
           for (int i = 0; i < 50-path_size; ++i) {    
             // advance dist_inc meters down the road
