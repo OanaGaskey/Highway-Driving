@@ -122,7 +122,8 @@ int main() {
             next_x_vals.push_back(previous_path_x[i]);
             next_y_vals.push_back(previous_path_y[i]);
           }
-          std::cout<<"previous path size is = "<<path_size<<std::endl;
+          
+          //cmakestd::cout<<"previous path size is = "<<path_size<<std::endl;
           
           // get previous path's end points and angle
           // if path empty or too short, get the car's current position and angle
@@ -140,6 +141,7 @@ int main() {
             // if there are no previous path points it is likely that this is the first cycle
             // start with zero reference speed value, to incrementally ramp up the car's velocity 
             ref_speed = 0.0;
+            std::cout<<"initial speed = "<<ref_speed<<std::endl;
           } else {
             // get last point from previous path
             pos_x = previous_path_x[path_size-1];
@@ -151,7 +153,8 @@ int main() {
             // add last two points to spline list for better transition trajectory
             spline_xy.push_back({pos_x2,pos_y2});
             spline_xy.push_back({pos_x,pos_y});
-            ref_speed = car_speed;
+            ref_speed = car_speed * 0.44704; //conversion from MPH to m/s
+            std::cout<<"car speed = "<<ref_speed<<std::endl;
           }
           
           // calculate spline points
@@ -174,14 +177,18 @@ int main() {
           s.set_points(spline_x_vals,spline_y_vals);
           
           // calculate dist_inc to smoothly ramp up the speed
+          std::cout<<"ref speed before comp "<<ref_speed<< " to max speed "<<max_speed<<std::endl;
           if (ref_speed < max_speed) {
             ref_speed += max_accel * delta_time;
+            std::cout<<"new ref speed "<<ref_speed<<std::endl;
+            std::cout<<"velocity increment =  "<<max_accel * delta_time<<std::endl;
           }
+          //std::cout<<"ref speed = "<<ref_speed<<std::endl;
           dist_inc = ref_speed * delta_time;
           
           //calculate car trajectory points
           //next_x = pos_x;
-          for (int i = 0; i < 50-path_size; ++i) {    
+          for (int i = 0; i < 10-path_size; ++i) {    
             // advance dist_inc meters down the road
             //next_s = end_path_s + dist_inc*(i+1);
             //next_d = 6;
@@ -195,12 +202,12 @@ int main() {
             next_x_vals.push_back(next_x);
             next_y_vals.push_back(next_y);
           }
-          std::cout<<"path size is = "<<next_x_vals.size()<<std::endl;
-          
+          //std::cout<<"path size is = "<<next_x_vals.size()<<std::endl;
+          /*
           for (int i = 0; i<next_x_vals.size(); ++i){
             std::cout<<"x = "<<next_x_vals[i]<<"y = "<<next_y_vals[i]<<std::endl;
           }
-                   
+            */       
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;
 
