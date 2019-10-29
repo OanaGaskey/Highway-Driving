@@ -3,15 +3,19 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <algorithm>
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
 #include "helpers.h"
 #include "json.hpp"
+#include "spline.h"
 
 // for convenience
 using nlohmann::json;
 using std::string;
 using std::vector;
+
+bool wayToSort(vector<double> i, vector<double> j) { return i[0] < j[0]; }
 
 int main() {
   uWS::Hub h;
@@ -50,6 +54,7 @@ int main() {
     map_waypoints_dy.push_back(d_y);
   }
 
+  
   h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,
                &map_waypoints_dx,&map_waypoints_dy]
               (uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
@@ -89,16 +94,98 @@ int main() {
           auto sensor_fusion = j[1]["sensor_fusion"];
 
           json msgJson;
-
-          vector<double> next_x_vals;
-          vector<double> next_y_vals;
-
           /**
            * TODO: define a path made up of (x,y) points that the car will visit
            *   sequentially every .02 seconds
            */
+          
+          vector<double> next_x_vals, next_y_vals, spline_x_vals, spline_y_vals, xy;
+          vector <vector<double>> spline_xy;
+          double angle, pos_x, pos_y, pos_x2, pos_y2, spline_x, spline_y, next_s, next_d, next_x, next_y;
+          double dist_inc = 0.2;
+          //double dist_ref = 30.0;
+          tk::spline s;   
+          int path_size = previous_path_x.size();
+          int map_size = map_waypoints_x.size();
+          int lane_id = 1;
+          double lane_width = 4.0;
+          int start_point;
+          
+          // transfer previous path's points to new path
+          for (int i = 0; i < path_size; ++i) {
+            next_x_vals.push_back(previous_path_x[i]);
+            next_y_vals.push_back(previous_path_y[i]);
+          }
+          std::cout<<"previous path size is = "<<path_size<<std::endl;
+          
+          // get previous path's end points and angle
+          // if path empty or too short, get the car's current position and angle
+          if (path_size == 0 || path_size == 1) {
+            // get car's current position
+            pos_x = car_x;
+            pos_y = car_y;
+            angle = deg2rad(car_yaw);
+            //go back one distance increment using angle
+            //pos_x2 = pos_x - dist_inc * cos(angle);
+            //pos_y2 = pos_y - dist_inc * sin(angle);
+            // add last two points to spline list for better transition trajectory
+            //spline_xy.push_back({pos_x2,pos_y2});
+            spline_xy.push_back({pos_x,pos_y});
+          } else {
+            // get last point from previous path
+            pos_x = previous_path_x[path_size-1];
+            pos_y = previous_path_y[path_size-1];
+            //get second to last point from previous path
+            pos_x2 = previous_path_x[path_size-2];
+            pos_y2 = previous_path_y[path_size-2];
+            angle = atan2(pos_y-pos_y2,pos_x-pos_x2);
+            // add last two points to spline list for better transition trajectory
+            //spline_xy.push_back({pos_x2,pos_y2});
+            spline_xy.push_back({pos_x,pos_y});
+          }
+          
+          // calculate spline points
+          // starting point is the closest map waypoint to the end of previous path's end
+          start_point = ClosestWaypoint(pos_x, pos_y, map_waypoints_x, map_waypoints_y);
+          // add 10 more points to the spline list
+          // points should be aligned to the waypoints provided in the map and along the middle of the intended lane_id
+          for (int i = 0; i < 10; ++i) {
+            spline_x = map_waypoints_x[(start_point+i)%map_size] + ( (lane_width/2 + double(lane_id*lane_width)) * map_waypoints_dx[(start_point+i)%map_size] );
+            spline_y = map_waypoints_y[(start_point+i)%map_size] + ( (lane_width/2 + double(lane_id*lane_width)) * map_waypoints_dy[(start_point+i)%map_size] );
+            spline_xy.push_back({spline_x,spline_y});
+          }
+          std::sort(spline_xy.begin(), spline_xy.end(), wayToSort);
+          for (int i = 0; i < spline_xy.size(); ++i) {
+            spline_x_vals.push_back(spline_xy[i][0]);
+            spline_y_vals.push_back(spline_xy[i][1]);
+          }
+          s.set_points(spline_x_vals,spline_y_vals);
+          
+          //calculate car trajectory points
+          next_s = end_path_s;
 
-
+          for (int i = 0; i < 50-path_size; ++i) {    
+            // advance dist_inc meters down the road
+            //next_s += dist_inc;
+            // get the corresponding x 
+            //next_x = getXY(next_s, end_path_d, map_waypoints_s, map_waypoints_x, map_waypoints_y)[0]; 
+            next_s = car_s + dist_inc*(i+1);
+            next_d = 6;
+            // use spline to calculate y
+            //next_y = s(next_x);
+            next_x = getXY(next_s, next_d, map_waypoints_s, map_waypoints_x, map_waypoints_y)[0];
+            next_y = getXY(next_s, next_d, map_waypoints_s, map_waypoints_x, map_waypoints_y)[1];
+            next_x_vals.push_back(next_x);
+            next_y_vals.push_back(next_y);
+          }
+          std::cout<<"path size is = "<<next_x_vals.size()<<std::endl;
+          
+          for (int i = 0; i<next_x_vals.size(); ++i){
+            std::cout<<"x = "<<next_x_vals[i]<<"y = "<<next_y_vals[i]<<std::endl;
+          }
+          //previous_path_x = next_x_vals;
+          //previous_path_y = next_y_vals;
+          
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;
 
@@ -122,6 +209,7 @@ int main() {
                          char *message, size_t length) {
     ws.close();
     std::cout << "Disconnected" << std::endl;
+    //debugfile.close();
   });
 
   int port = 4567;
