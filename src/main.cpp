@@ -166,15 +166,14 @@ int main() {
 
           for (int i = 0; i < 50-path_size; ++i) {    
             // advance dist_inc meters down the road
-            //next_s += dist_inc;
-            // get the corresponding x 
-            //next_x = getXY(next_s, end_path_d, map_waypoints_s, map_waypoints_x, map_waypoints_y)[0]; 
-            next_s += dist_inc*(i+1);
-            next_d = 6;
+            //next_s = end_path_s + dist_inc*(i+1);
+            //next_d = 6;
+            //next_x = getXY(next_s, next_d, map_waypoints_s, map_waypoints_x, map_waypoints_y)[0];
+            //next_y = getXY(next_s, next_d, map_waypoints_s, map_waypoints_x, map_waypoints_y)[1];
             // use spline to calculate y
-            //next_y = s(next_x);
-            next_x = getXY(next_s, next_d, map_waypoints_s, map_waypoints_x, map_waypoints_y)[0];
-            next_y = getXY(next_s, next_d, map_waypoints_s, map_waypoints_x, map_waypoints_y)[1];
+            next_x = pos_x + dist_inc*(i+1);
+            next_y = s(next_x);
+            
             next_x_vals.push_back(next_x);
             next_y_vals.push_back(next_y);
           }
