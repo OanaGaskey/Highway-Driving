@@ -169,7 +169,7 @@ int main() {
             //next_s += dist_inc;
             // get the corresponding x 
             //next_x = getXY(next_s, end_path_d, map_waypoints_s, map_waypoints_x, map_waypoints_y)[0]; 
-            next_s = car_s + dist_inc*(i+1);
+            next_s += dist_inc*(i+1);
             next_d = 6;
             // use spline to calculate y
             //next_y = s(next_x);
