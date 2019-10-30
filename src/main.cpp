@@ -185,7 +185,7 @@ int main() {
           // loop over all detected cars from sensor fusion
           for (int i = 0; i < sensor_fusion.size(); ++i){
             // check if the other's car d Frenet component is within the boundaries of my lane
-            if ( (lane_id*lane_width + 1) < sensor_fusion[i][6] < ((lane_id+1)*lane_width - 1) ){
+            if ( ( lane_id*lane_width + 1 < sensor_fusion[i][6]) &&  (sensor_fusion[i][6] < (lane_id+1)*lane_width - 1)  ){
               // convert own car speed from MPH to m/s
               // take the absolute value since orientation doesn't matter as long as all cars in one lane go in one direction
               // car_speed = fabs(car_speed * MPH_mps);
@@ -194,9 +194,12 @@ int main() {
               // calculate the diference in speed between the two cars
               // delta_speed = car_speed - sf_car_speed;
               // check if other car is closer than the end of my previous path plus safety distance               
-              if (sensor_fusion[i][5] < (end_path_s + safety_dist)){
+              if ((sensor_fusion[i][5] < (end_path_s + safety_dist)) && (sensor_fusion[i][5] > car_s)){
                   //match its speed
                 std::cout<<"CAR IN MY LANE!!!"<<std::endl;
+                std::cout<<"my d = "<<car_d<<" other's d = "<<sensor_fusion[i][6]<<std::endl;
+                std::cout<<"my lane boundaries are "<<(lane_id*lane_width + 1)<<" and "<<((lane_id+1)*lane_width - 1)<<std::endl;
+                std::cout<<"my s = "<<car_s<<"other's s = "<<sensor_fusion[i][5]<<std::endl;
                 ref_speed = other_car_speed;  
                }
             }
