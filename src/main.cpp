@@ -54,6 +54,8 @@ int main() {
     map_waypoints_dy.push_back(d_y);
   }
 
+  // speed reference for vehicle is local to main so its 
+  // value is kept from one onMessage call to another
   double ref_speed = 0.0;
   
   h.onMessage([&ref_speed,&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,
@@ -99,21 +101,20 @@ int main() {
            * TODO: define a path made up of (x,y) points that the car will visit
            *   sequentially every .02 seconds
            */
-          
-          vector<double> next_x_vals, next_y_vals, spline_x_vals, spline_y_vals;
           vector <vector<double>> spline_xy;
+          vector<double> next_x_vals, next_y_vals, spline_x_vals, spline_y_vals;          
           double angle, pos_x, pos_y, pos_x2, pos_y2, spline_x, spline_y, next_x, next_y;
-          double dist_inc;
-          double max_speed = 20.0; //m/s which is slightly lower than 50MPH
+          double lane_width = 4.0; //m
           double delta_time = 0.02; //s = 20ms
-          double accel = 7.0; // m/s^2
-          double max_jerk = 9.0; // m/s^3
-          tk::spline s;   
+          double max_speed = 20.0; //m/s which is slightly lower than 50MPH
+          double ref_accel = 7.0; // m/s^2
+          double max_jerk = 9.0; // m/s^3  
+          double dist_inc;
           int path_size = previous_path_x.size();
           int map_size = map_waypoints_x.size();
           int lane_id = 1;
-          double lane_width = 4.0;
           int start_point;
+          tk::spline s;
           
           // transfer previous path's points to new path
           for (int i = 0; i < path_size; ++i) {
@@ -131,15 +132,15 @@ int main() {
             pos_y = car_y;
             angle = deg2rad(car_yaw);
             //go back one distance increment using angle
-            //pos_x2 = pos_x - dist_inc * cos(angle);
-            //pos_y2 = pos_y - dist_inc * sin(angle);
+            pos_x2 = pos_x - dist_inc * cos(angle);
+            pos_y2 = pos_y - dist_inc * sin(angle);
             // add last two points to spline list for better transition trajectory
-            //spline_xy.push_back({pos_x2,pos_y2});
+            // make sure the pos x are not equal since spline crashes if not
+            if (pos_x == pos_x2){
+              pos_x2 -= 0.01;
+            }
+            spline_xy.push_back({pos_x2,pos_y2});
             spline_xy.push_back({pos_x,pos_y});
-            // if there are no previous path points it is likely that this is the first cycle
-            // start with zero reference speed value, to incrementally ramp up the car's velocity 
-            //ref_speed = 0.0;
-            //std::cout<<"initial speed = "<<ref_speed<<std::endl;
           } else {
             // get last point from previous path
             pos_x = previous_path_x[path_size-1];
@@ -151,16 +152,14 @@ int main() {
             // add last two points to spline list for better transition trajectory
             spline_xy.push_back({pos_x2,pos_y2});
             spline_xy.push_back({pos_x,pos_y});
-            //ref_speed = car_speed * 0.44704; //conversion from MPH to m/s
-            //std::cout<<"ref speed = "<<ref_speed<<std::endl;
           }
           
           // calculate spline points
-          // starting point is the closest map waypoint to the end of previous path's end
+          // starting point is the next map waypoint to the end of previous path's end
           start_point = NextWaypoint(pos_x, pos_y, angle, map_waypoints_x, map_waypoints_y);
-          // add 10 more points to the spline list
+          // add 5 more points to the spline list, this means looking at the road 150 meters ahead to calculate shape
           // points should be aligned to the waypoints provided in the map and along the middle of the intended lane_id
-          for (int i = 0; i < 10; ++i) {
+          for (int i = 0; i < 5; ++i) {
             spline_x = map_waypoints_x[(start_point+i)%map_size] + ( (lane_width/2 + double(lane_id*lane_width)) * map_waypoints_dx[(start_point+i)%map_size] );
             spline_y = map_waypoints_y[(start_point+i)%map_size] + ( (lane_width/2 + double(lane_id*lane_width)) * map_waypoints_dy[(start_point+i)%map_size] );
             spline_xy.push_back({spline_x,spline_y});
@@ -175,28 +174,18 @@ int main() {
           s.set_points(spline_x_vals,spline_y_vals);
           
           // calculate dist_inc to smoothly ramp up the speed
-          std::cout<<"ref speed before comp "<<ref_speed<< " to max speed "<<max_speed<<std::endl;
           if (ref_speed < max_speed) {
-            ref_speed += accel * delta_time;
-            std::cout<<"new ref speed "<<ref_speed<<std::endl;
-            std::cout<<"velocity increment =  "<<accel * delta_time<<std::endl;
-          }else{
-            std::cout<<"ref speed is not increased"<<std::endl;
+            ref_speed += ref_accel * delta_time;
           }
-          //std::cout<<"ref speed = "<<ref_speed<<std::endl;
+          // calculate distance increments based on desired velocity
           dist_inc = ref_speed * delta_time;
           
           //calculate car trajectory points
           //next_x = pos_x;
-          for (int i = 0; i < 10-path_size; ++i) {    
-            // advance dist_inc meters down the road
-            //next_s = end_path_s + dist_inc*(i+1);
-            //next_d = 6;
-            //next_x = getXY(next_s, next_d, map_waypoints_s, map_waypoints_x, map_waypoints_y)[0];
-            //next_y = getXY(next_s, next_d, map_waypoints_s, map_waypoints_x, map_waypoints_y)[1];
-            
-            // use spline to calculate y
+          for (int i = 0; i < 50-path_size; ++i) {    
+            // advance dist_inc meters down the road        
             next_x = pos_x + dist_inc*(i+1);
+            // use spline to calculate y
             next_y = s(next_x);
             
             next_x_vals.push_back(next_x);
