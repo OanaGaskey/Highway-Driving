@@ -113,7 +113,10 @@ int main() {
           double max_jerk = 9.0; // m/s^3  
           double dist_inc;
           double sf_car_speed;
-          bool slow_down = 0;
+          double speed_hyst = 0.1; // speed hysteresis m/s
+          double delta_speed;
+          double safety_dist = 5.0;
+          int ctrl_speed = 2; // 0 = slow down / 1 = keep speed / 2 = speed up
           int path_size = previous_path_x.size();
           int map_size = map_waypoints_x.size();
           int lane_id = 1;
@@ -177,34 +180,49 @@ int main() {
           }
           s.set_points(spline_x_vals,spline_y_vals);
           
-          // check sensor fusion info to see if there are other cars in my lane
+          // check to see if there are other cars in my lane going slower than me
+          // loop over all detected cars from sensor fusion
           for (int i = 0; i < sensor_fusion.size(); ++i){
-            // check if d Frenet component is within the boundaries of my lane
-            if ( lane_id*lane_width < sensor_fusion[i][6] < (lane_id+1)*lane_width ){
-              // convert car speed from MPH to m/s
-              car_speed *= MPH_mps; 
-              // calculate other's car speed in m/s
+            // check if the other's car d Frenet component is within the boundaries of my lane
+            if ( (lane_id*lane_width + 0.2) < sensor_fusion[i][6] < ((lane_id+1)*lane_width - 0.2) ){
+              // convert own car speed from MPH to m/s
+              // take the absolute value since orientation doesn't matter as long as all cars in one lane go in one direction
+              car_speed = fabs(car_speed * MPH_mps);
+              // calculate other's car absolute speed value in m/s
               sf_car_speed = std::sqrt( pow(sensor_fusion[i][3],2.0) + pow(sensor_fusion[i][4],2.0) ); 
-              // check if other car is closer than the end of my previous path and if it's going slower than me
-              if ((sensor_fusion[i][5] < (end_path_s+20.0)) && (sf_car_speed < car_speed)){
-                // slow down
-                std::cout<<"car in lane going slower!!!"<<std::endl;
-                slow_down = 1;                
+              // calculate the diference in speed between the two cars
+              delta_speed = car_speed - sf_car_speed;
+              // check if other car is closer than the end of my previous path plus safety distance               
+              if (sensor_fusion[i][5] < (end_path_s + safety_dist)){
+                // check if it's going slower than me
+                if (fabs(delta_speed) < speed_hyst){
+                  //keep speed
+                  std::cout<<"going at same speed as car in front"<<std::endl;
+                  ctrl_speed = 1; 
+                }else if (delta_speed > 0.0){
+                  // slow down
+                  std::cout<<"car in lane going slower!!!"<<std::endl;
+                  ctrl_speed = 0;  
+                  // check if same speed, in case it's going faster than me, I don't care about it
+                } 
               }
             }
           }          
-          // calculate dist_inc to smoothly slow down or ramp up the speed
-          if (slow_down){
-            ref_speed -= ref_accel * delta_time;
-            std::cout<<"ref speed is decreasing "<<ref_speed<<std::endl;
-          }
-          else if (ref_speed < max_speed) {
-            ref_speed += ref_accel * delta_time;
-            std::cout<<"ref speed is increasing "<<ref_speed<<std::endl;
-          }
-          // calculate distance increments based on desired velocity
-          dist_inc = ref_speed * delta_time;
           
+          if (ctrl_speed == 0){
+            ref_speed -= 1.5 * ref_accel * delta_time;
+            std::cout<<"ref speed is decreasing "<<ref_speed<<std::endl;
+          } else if((ctrl_speed == 2) && (ref_speed < max_speed)){
+            ref_speed += ref_accel * delta_time;            
+            std::cout<<"ref speed is increasing "<<ref_speed<<std::endl;
+          } else{
+            std::cout<<"ref speed is kept "<<ref_speed<<std::endl;
+          }
+          
+          // calculate x distance increments based on desired velocity
+          // if angle is pi/2 still increment x a little bit
+          dist_inc = std::max(ref_speed * delta_time* cos(angle), 0.01);         
+
           //calculate car trajectory points
           //next_x = pos_x;
           for (int i = 0; i < 50-path_size; ++i) {    
