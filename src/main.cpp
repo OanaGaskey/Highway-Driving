@@ -54,8 +54,9 @@ int main() {
     map_waypoints_dy.push_back(d_y);
   }
 
+  double ref_speed = 0.0;
   
-  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,
+  h.onMessage([&ref_speed,&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,
                &map_waypoints_dx,&map_waypoints_dy]
               (uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                uWS::OpCode opCode) {
@@ -103,13 +104,10 @@ int main() {
           vector <vector<double>> spline_xy;
           double angle, pos_x, pos_y, pos_x2, pos_y2, spline_x, spline_y, next_x, next_y;
           double dist_inc;
-          double max_speed = 22.0; //m/s which is slightly lower than 50MPH
-          //double speed_hysteresis = 0.1; //m/s
-          double ref_speed;
+          double max_speed = 20.0; //m/s which is slightly lower than 50MPH
           double delta_time = 0.02; //s = 20ms
-          double max_accel = 9.0; // m/s^2
+          double accel = 7.0; // m/s^2
           double max_jerk = 9.0; // m/s^3
-          //double dist_ref = 30.0;
           tk::spline s;   
           int path_size = previous_path_x.size();
           int map_size = map_waypoints_x.size();
@@ -140,8 +138,8 @@ int main() {
             spline_xy.push_back({pos_x,pos_y});
             // if there are no previous path points it is likely that this is the first cycle
             // start with zero reference speed value, to incrementally ramp up the car's velocity 
-            ref_speed = 0.0;
-            std::cout<<"initial speed = "<<ref_speed<<std::endl;
+            //ref_speed = 0.0;
+            //std::cout<<"initial speed = "<<ref_speed<<std::endl;
           } else {
             // get last point from previous path
             pos_x = previous_path_x[path_size-1];
@@ -153,8 +151,8 @@ int main() {
             // add last two points to spline list for better transition trajectory
             spline_xy.push_back({pos_x2,pos_y2});
             spline_xy.push_back({pos_x,pos_y});
-            ref_speed = car_speed * 0.44704; //conversion from MPH to m/s
-            std::cout<<"car speed = "<<ref_speed<<std::endl;
+            //ref_speed = car_speed * 0.44704; //conversion from MPH to m/s
+            //std::cout<<"ref speed = "<<ref_speed<<std::endl;
           }
           
           // calculate spline points
@@ -179,9 +177,11 @@ int main() {
           // calculate dist_inc to smoothly ramp up the speed
           std::cout<<"ref speed before comp "<<ref_speed<< " to max speed "<<max_speed<<std::endl;
           if (ref_speed < max_speed) {
-            ref_speed += max_accel * delta_time;
+            ref_speed += accel * delta_time;
             std::cout<<"new ref speed "<<ref_speed<<std::endl;
-            std::cout<<"velocity increment =  "<<max_accel * delta_time<<std::endl;
+            std::cout<<"velocity increment =  "<<accel * delta_time<<std::endl;
+          }else{
+            std::cout<<"ref speed is not increased"<<std::endl;
           }
           //std::cout<<"ref speed = "<<ref_speed<<std::endl;
           dist_inc = ref_speed * delta_time;
