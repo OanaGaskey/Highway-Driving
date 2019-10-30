@@ -9,6 +9,7 @@
 #include "helpers.h"
 #include "json.hpp"
 #include "spline.h"
+#include "math.h"
 
 // for convenience
 using nlohmann::json;
@@ -83,7 +84,7 @@ int main() {
           double car_s = j[1]["s"];
           double car_d = j[1]["d"];
           double car_yaw = j[1]["yaw"];
-          double car_speed = j[1]["speed"];
+          double car_speed = j[1]["speed"]; //MPH
 
           // Previous path data given to the Planner
           auto previous_path_x = j[1]["previous_path_x"];
@@ -102,7 +103,8 @@ int main() {
            *   sequentially every .02 seconds
            */
           vector <vector<double>> spline_xy;
-          vector<double> next_x_vals, next_y_vals, spline_x_vals, spline_y_vals;          
+          vector<double> next_x_vals, next_y_vals, spline_x_vals, spline_y_vals;   
+          const double MPH_mps = 0.447; //conversion factor from MPH to m/s 
           double angle, pos_x, pos_y, pos_x2, pos_y2, spline_x, spline_y, next_x, next_y;
           double lane_width = 4.0; //m
           double delta_time = 0.02; //s = 20ms
@@ -110,6 +112,8 @@ int main() {
           double ref_accel = 7.0; // m/s^2
           double max_jerk = 9.0; // m/s^3  
           double dist_inc;
+          double sf_car_speed;
+          bool slow_down = 0;
           int path_size = previous_path_x.size();
           int map_size = map_waypoints_x.size();
           int lane_id = 1;
@@ -122,7 +126,7 @@ int main() {
             next_y_vals.push_back(previous_path_y[i]);
           }
           
-          //cmakestd::cout<<"previous path size is = "<<path_size<<std::endl;
+          //std::cout<<"previous path size is = "<<path_size<<std::endl;
           
           // get previous path's end points and angle
           // if path empty or too short, get the car's current position and angle
@@ -152,8 +156,8 @@ int main() {
             // add last two points to spline list for better transition trajectory
             spline_xy.push_back({pos_x2,pos_y2});
             spline_xy.push_back({pos_x,pos_y});
-          }
-          
+          }          
+              
           // calculate spline points
           // starting point is the next map waypoint to the end of previous path's end
           start_point = NextWaypoint(pos_x, pos_y, angle, map_waypoints_x, map_waypoints_y);
@@ -173,9 +177,30 @@ int main() {
           }
           s.set_points(spline_x_vals,spline_y_vals);
           
-          // calculate dist_inc to smoothly ramp up the speed
-          if (ref_speed < max_speed) {
+          // check sensor fusion info to see if there are other cars in my lane
+          for (int i = 0; i < sensor_fusion.size(); ++i){
+            // check if d Frenet component is within the boundaries of my lane
+            if ( lane_id*lane_width < sensor_fusion[i][6] < (lane_id+1)*lane_width ){
+              // convert car speed from MPH to m/s
+              car_speed *= MPH_mps; 
+              // calculate other's car speed in m/s
+              sf_car_speed = std::sqrt( pow(sensor_fusion[i][3],2.0) + pow(sensor_fusion[i][4],2.0) ); 
+              // check if other car is closer than the end of my previous path and if it's going slower than me
+              if ((sensor_fusion[i][5] < (end_path_s+20.0)) && (sf_car_speed < car_speed)){
+                // slow down
+                std::cout<<"car in lane going slower!!!"<<std::endl;
+                slow_down = 1;                
+              }
+            }
+          }          
+          // calculate dist_inc to smoothly slow down or ramp up the speed
+          if (slow_down){
+            ref_speed -= ref_accel * delta_time;
+            std::cout<<"ref speed is decreasing "<<ref_speed<<std::endl;
+          }
+          else if (ref_speed < max_speed) {
             ref_speed += ref_accel * delta_time;
+            std::cout<<"ref speed is increasing "<<ref_speed<<std::endl;
           }
           // calculate distance increments based on desired velocity
           dist_inc = ref_speed * delta_time;
