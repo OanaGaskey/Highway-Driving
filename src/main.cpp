@@ -54,13 +54,12 @@ int main() {
     map_waypoints_dx.push_back(d_x);
     map_waypoints_dy.push_back(d_y);
   }
-
-  // speed reference for vehicle is local to main so its 
-  // value is kept from one onMessage call to another
+   
+  double ctrl_speed = 0.0; // speed control for vehicle
+  int change_lane = 0; // 0 = keep lane; 1 = change lane;
+  int lane_id = 1;
   
-  double ctrl_speed = 0.0;
-  
-  h.onMessage([&ctrl_speed,&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,
+  h.onMessage([&ctrl_speed,&change_lane,&lane_id,&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,
                &map_waypoints_dx,&map_waypoints_dy]
               (uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                uWS::OpCode opCode) {
@@ -107,20 +106,19 @@ int main() {
           vector<double> next_x_vals, next_y_vals, spline_x_vals, spline_y_vals;   
           const double MPH_mps = 0.447; //conversion factor from MPH to m/s 
           const double lane_margin =  0.2;
-          const double safety_dist = 5.0;
-          const double speed_hyst = 1.0; // speed hysteresis m/s
+          const double safety_dist = 30.0;
+          const double speed_hyst = 0.5; // speed hysteresis m/s
           const double lane_width = 4.0; //m
           const double delta_time = 0.02; //s = 20ms
-          const double max_speed = 20.0; //m/s which is slightly lower than 50MPH
+          const double max_speed = 21.5; //m/s which is slightly lower than 50MPH
           const double max_accel = 10.0; // m/s^2
           const double max_jerk = 10.0; // m/s^3  
           double angle, pos_x, pos_y, pos_x2, pos_y2, spline_x, spline_y, next_x, next_y;
           double ref_speed = max_speed;
           double dist_inc;
-          double other_car_speed;
+          double other_car_speed, delta_speed;
           int path_size = previous_path_x.size();
           int map_size = map_waypoints_x.size();
-          int lane_id = 1;
           int start_point;
           tk::spline s;
           
@@ -168,8 +166,8 @@ int main() {
           // add more points to the spline list, this means looking at the road 150 meters ahead to calculate shape
           // points should be aligned to the waypoints provided in the map and along the middle of the intended lane_id
           for (int i = 0; i < 10; ++i) {
-            spline_x = map_waypoints_x[(start_point+i)%map_size] + ( (lane_width/2 + double(lane_id*lane_width)) * map_waypoints_dx[(start_point+i)%map_size] );
-            spline_y = map_waypoints_y[(start_point+i)%map_size] + ( (lane_width/2 + double(lane_id*lane_width)) * map_waypoints_dy[(start_point+i)%map_size] );
+            spline_x = map_waypoints_x[(start_point+i+1)%map_size] + ( (lane_width/2 + double(lane_id*lane_width)) * map_waypoints_dx[(start_point+i)%map_size] );
+            spline_y = map_waypoints_y[(start_point+i+1)%map_size] + ( (lane_width/2 + double(lane_id*lane_width)) * map_waypoints_dy[(start_point+i)%map_size] );
             spline_xy.push_back({spline_x,spline_y});
           }
           // sort spline_xy vector by the x value as expected by set_points in spline header function
@@ -181,38 +179,59 @@ int main() {
           }
           s.set_points(spline_x_vals,spline_y_vals);
           
-          // check to see if there are other cars in my lane going slower than me
-          // loop over all detected cars from sensor fusion
-          for (int i = 0; i < sensor_fusion.size(); ++i){
-            // check if the other's car d Frenet component is within the boundaries of my lane
-            if ( ( lane_id*lane_width + 1 < sensor_fusion[i][6]) &&  (sensor_fusion[i][6] < (lane_id+1)*lane_width - 1)  ){
-              // convert own car speed from MPH to m/s
-              // take the absolute value since orientation doesn't matter as long as all cars in one lane go in one direction
-              // car_speed = fabs(car_speed * MPH_mps);
-              // calculate other's car absolute speed value in m/s              
-              other_car_speed = std::sqrt( pow(sensor_fusion[i][3],2.0) + pow(sensor_fusion[i][4],2.0) ); 
-              // calculate the diference in speed between the two cars
-              // delta_speed = car_speed - sf_car_speed;
-              // check if other car is closer than the end of my previous path plus safety distance               
-              if ((sensor_fusion[i][5] < (end_path_s + safety_dist)) && (sensor_fusion[i][5] > car_s)){
-                  //match its speed
-                std::cout<<"CAR IN MY LANE!!!"<<std::endl;
-                std::cout<<"my d = "<<car_d<<" other's d = "<<sensor_fusion[i][6]<<std::endl;
-                std::cout<<"my lane boundaries are "<<(lane_id*lane_width + 1)<<" and "<<((lane_id+1)*lane_width - 1)<<std::endl;
-                std::cout<<"my s = "<<car_s<<"other's s = "<<sensor_fusion[i][5]<<std::endl;
-                ref_speed = other_car_speed;  
-               }
-            }
-          }          
           
-          if ((ctrl_speed > ref_speed) && (ctrl_speed > 0.2)){
+          switch(change_lane) {
+            case 0 : // keep lane
+              // check to see if there are other cars in my lane going slower than me
+              // loop over all detected cars from sensor fusion
+              for (int i = 0; i < sensor_fusion.size(); ++i){
+                // check if the other's car d Frenet component is within the boundaries of my lane
+                if ( ( lane_id*lane_width < sensor_fusion[i][6]) &&  (sensor_fusion[i][6] < (lane_id+1)*lane_width) ){
+                  // check if other car is in fromt of me, closer than the end of my previous path plus safety distance               
+                  if ((sensor_fusion[i][5] < (end_path_s + safety_dist)) && (sensor_fusion[i][5] > (car_s - 4.0))){
+                    // convert own car speed from MPH to m/s
+                    // take the absolute value since orientation doesn't matter as long as all cars in one lane go in one direction
+                    car_speed = fabs(car_speed * MPH_mps);
+                    // calculate other's car absolute speed value in m/s              
+                    other_car_speed = std::sqrt( pow(sensor_fusion[i][3],2.0) + pow(sensor_fusion[i][4],2.0) ); 
+                    // calculate the diference in speed between the two cars
+                    delta_speed = car_speed - other_car_speed;
+                    // if car going slower than me, match its speed
+                    if (delta_speed > 0.0){
+                      ref_speed = other_car_speed;  
+                      
+                      std::cout<<"CAR IN MY LANE!!!"<<std::endl;
+                      //std::cout<<"my d = "<<car_d<<" other's d = "<<sensor_fusion[i][6]<<std::endl;
+                      //std::cout<<"my lane boundaries are "<<(lane_id*lane_width + 1)<<" and "<<((lane_id+1)*lane_width - 1)<<std::endl;
+                      //std::cout<<"my s = "<<car_s<<"other's s = "<<sensor_fusion[i][5]<<std::endl;
+                    } 
+                    // if the car in front of me slowed me down too much, change lanes 
+                    if ( car_speed < 0.85 * max_speed ) {
+                      change_lane = 1;
+                    }
+                  }
+                }
+              }          
+              break;       // and exits the switch
+            case 1 : 
+              std::cout<<"CHANGE LANE"<<std::endl;
+              lane_id = 0;
+              if ( ( lane_id*lane_width < car_d) &&  (car_d < (lane_id+1)*lane_width) ){
+                change_lane = 0;
+              }  
+              
+              break;
+          }
+          
+          
+          if ((ctrl_speed > ref_speed + speed_hyst) && (ctrl_speed > 0.2)){
             ctrl_speed -= max_accel * delta_time;
             std::cout<<"speed is decreasing "<<ctrl_speed<<std::endl;
-          } else if(ctrl_speed < ref_speed /*- speed_hyst*/){
+          } else if((ctrl_speed < ref_speed - speed_hyst) && (ref_speed <= max_speed)){
             ctrl_speed += 0.5 * max_accel * delta_time;            
-            std::cout<<"speed is increasing "<<ref_speed<<std::endl;
+            std::cout<<"speed is increasing "<<ctrl_speed<<std::endl;
           } else{
-            std::cout<<"speed is kept "<<ref_speed<<std::endl;
+            std::cout<<"speed is kept "<<ctrl_speed<<std::endl;
           }
           
           // calculate x distance increments based on desired velocity
@@ -220,7 +239,7 @@ int main() {
           dist_inc = std::max(ctrl_speed * delta_time* cos(angle), 0.01);         
 
           //calculate car trajectory points
-          for (int i = 0; i < 50-path_size; ++i) {    
+          for (int i = 0; i < 10-path_size; ++i) {    
             // advance dist_inc meters down the road        
             next_x = pos_x + dist_inc*(i+1);
             // use spline to calculate y
