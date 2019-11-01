@@ -104,6 +104,7 @@ int main() {
            */
           vector <vector<double>> spline_xy;
           vector<double> next_x_vals, next_y_vals, spline_x_vals, spline_y_vals;   
+          vector<double> speed_per_lane = {50.00, 50.00, 50.00};
           const double MPH_mps = 0.447; //conversion factor from MPH to m/s 
           const double lane_margin =  0.2;
           const double safety_dist = 30.0;
@@ -128,6 +129,7 @@ int main() {
           // analyze traffic situation
           // take the absolute value since orientation doesn't matter as long as all cars in one lane go in one direction
           car_speed = fabs(car_speed * MPH_mps); // convert own car speed from MPH to m/s
+          
           // loop over all detected cars from sensor fusion
           for (int i = 0; i < sensor_fusion.size(); ++i){
             // check to see if there are other cars in my lane going slower than me
@@ -153,28 +155,39 @@ int main() {
                 } 
               }
             }
+            
             // check for cars at my left in the eventuality of a lane change to the left
             // make sure car is not in the left most lane
-            // look for available space in the left lane
             if ( (lane_id > 0) &&
                  ((lane_id - 1) * lane_width < sensor_fusion[i][6]) &&  
-                 (sensor_fusion[i][6] < lane_id * lane_width) &&
-                 (sensor_fusion[i][5] < car_s + 10.0) && 
-                 (sensor_fusion[i][5] > car_s - 10.0)                 ){       
-              left_clear = 0;
+                 (sensor_fusion[i][6] < lane_id * lane_width)         ){
+              // look for available space in the left lane
+              if ( (sensor_fusion[i][5] < car_s + 10.0) && 
+                   (sensor_fusion[i][5] > car_s - 10.0)   ){       
+                left_clear = 0;
+              }
+              // check for traffic speed in the left lane, if any
+              if (sensor_fusion[i][5] > car_s - 5.0){       
+                speed_per_lane[lane_id - 1] = std::sqrt( pow(sensor_fusion[i][3],2.0) + pow(sensor_fusion[i][4],2.0) );
+              }              
             }
+            
             // check for cars at my right in the eventuality of a lane change to the right
-            // make sure car is not in the right most lane
-            // look for available space in the right lane
+            // make sure car is not in the right most lane            
             if ( (lane_id < 2) &&
                  (lane_id * lane_width < sensor_fusion[i][6]) &&  
-                 (sensor_fusion[i][6] < (lane_id+1) * lane_width) &&
-                 (sensor_fusion[i][5] < car_s + 10.0) && 
-                 (sensor_fusion[i][5] > car_s - 10.0)                ){
-              right_clear = 0;
-            }
-          }
-          
+                 (sensor_fusion[i][6] < (lane_id+1) * lane_width) ){
+              // look for available space in the right lane
+              if ( (sensor_fusion[i][5] < car_s + 10.0) && 
+                   (sensor_fusion[i][5] > car_s - 10.0)   ){
+                right_clear = 0;
+              }
+              // check for traffic speed in the right lane, if any
+              if (sensor_fusion[i][5] > car_s - 5.0){       
+                speed_per_lane[lane_id + 1] = std::sqrt( pow(sensor_fusion[i][3],2.0) + pow(sensor_fusion[i][4],2.0) );
+              }  
+            }            
+          }// for over all traffic objects          
           
           // if the car in front of me slowed me down too much, change lanes if a lane chane is not already in progress
           if ( (front_car_slower == 1) && 
@@ -185,10 +198,14 @@ int main() {
           
           if (change_lane == 1){
             //try to change lanes to the left
-            if ((lane_id > 0) && (left_clear == 1)){
+            if ( (lane_id > 0) && 
+                 (left_clear == 1) &&
+                 (speed_per_lane[lane_id - 1] > car_speed + speed_hyst) ){
               lane_id = lane_id - 1;
               change_lane = 0;
-            }else if ((lane_id < 2) && (right_clear == 1)){
+            }else if ( (lane_id < 2) && 
+                       (right_clear == 1) &&
+                       (speed_per_lane[lane_id + 1] > car_speed + speed_hyst) ){
               lane_id = lane_id + 1;
               change_lane = 0;
             }        
@@ -216,7 +233,7 @@ int main() {
             // add last two points to spline list for better transition trajectory
             // make sure the pos x are not equal since spline crashes if not
             if (pos_x == pos_x2){
-              pos_x2 -= 0.01;
+              pos_x2 -= 0.0001;
             }
             spline_xy.push_back({pos_x2,pos_y2});
             spline_xy.push_back({pos_x,pos_y});
@@ -267,7 +284,7 @@ int main() {
           
           // calculate x distance increments based on desired velocity
           // if angle is pi/2 still increment x a little bit
-          dist_inc = std::max(ctrl_speed * delta_time* cos(angle), 0.01);         
+          dist_inc = std::max(ctrl_speed * delta_time* cos(angle), 0.0001);         
 
           //calculate car trajectory points
           for (int i = 0; i < 10-path_size; ++i) {    
