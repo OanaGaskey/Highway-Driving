@@ -125,6 +125,76 @@ int main() {
           bool right_clear = 1;
           tk::spline s;
           
+          // analyze traffic situation
+          // take the absolute value since orientation doesn't matter as long as all cars in one lane go in one direction
+          car_speed = fabs(car_speed * MPH_mps); // convert own car speed from MPH to m/s
+          // loop over all detected cars from sensor fusion
+          for (int i = 0; i < sensor_fusion.size(); ++i){
+            // check to see if there are other cars in my lane going slower than me
+            // check if the other's car d Frenet component is within the boundaries of my lane
+            if ( ( lane_id*lane_width < sensor_fusion[i][6]) &&  
+                 (sensor_fusion[i][6] < (lane_id+1)*lane_width) ){
+              // check if other car is in fromt of me, closer than the end of my previous path plus safety distance               
+              if ((sensor_fusion[i][5] < (end_path_s + safety_dist)) && 
+                  (sensor_fusion[i][5] > (car_s - 5.0))                 ){           
+                // calculate other's car absolute speed value in m/s              
+                front_car_speed = std::sqrt( pow(sensor_fusion[i][3],2.0) + pow(sensor_fusion[i][4],2.0) ); 
+                // calculate the diference in speed between the two cars
+                delta_speed = car_speed - front_car_speed;
+                // if car going slower than me, match its speed
+                if (delta_speed > 0.0){
+                  ref_speed = front_car_speed;
+                  front_car_slower = 1;
+                  std::cout<<"CAR IN MY LANE GOING SLOWER!!!"<<std::endl;
+                  std::cout<<"my speed = "<<car_speed<<" other's speed = "<<front_car_speed<<std::endl;
+                      //std::cout<<"my d = "<<car_d<<" other's d = "<<sensor_fusion[i][6]<<std::endl;
+                      //std::cout<<"my lane boundaries are "<<(lane_id*lane_width + 1)<<" and "<<((lane_id+1)*lane_width - 1)<<std::endl;
+                      //std::cout<<"my s = "<<car_s<<"other's s = "<<sensor_fusion[i][5]<<std::endl;
+                } 
+              }
+            }
+            // check for cars at my left in the eventuality of a lane change to the left
+            // make sure car is not in the left most lane
+            // look for available space in the left lane
+            if ( (lane_id > 0) &&
+                 ((lane_id - 1) * lane_width < sensor_fusion[i][6]) &&  
+                 (sensor_fusion[i][6] < lane_id * lane_width) &&
+                 (sensor_fusion[i][5] < car_s + 10.0) && 
+                 (sensor_fusion[i][5] > car_s - 10.0)                 ){       
+              left_clear = 0;
+            }
+            // check for cars at my right in the eventuality of a lane change to the right
+            // make sure car is not in the right most lane
+            // look for available space in the right lane
+            if ( (lane_id < 2) &&
+                 (lane_id * lane_width < sensor_fusion[i][6]) &&  
+                 (sensor_fusion[i][6] < (lane_id+1) * lane_width) &&
+                 (sensor_fusion[i][5] < car_s + 10.0) && 
+                 (sensor_fusion[i][5] > car_s - 10.0)                ){
+              right_clear = 0;
+            }
+          }
+          
+          
+          // if the car in front of me slowed me down too much, change lanes if a lane chane is not already in progress
+          if ( (front_car_slower == 1) && 
+               (car_speed < 0.85 * max_speed) &&
+               (change_lane == 0)               ) {
+            change_lane = 1;
+          }
+          
+          if (change_lane == 1){
+            //try to change lanes to the left
+            if ((lane_id > 0) && (left_clear == 1)){
+              lane_id = lane_id - 1;
+              change_lane = 0;
+            }else if ((lane_id < 2) && (right_clear == 1)){
+              lane_id = lane_id + 1;
+              change_lane = 0;
+            }        
+          }
+                     
+          // calculate path
           // transfer previous path's points to new path
           for (int i = 0; i < path_size; ++i) {
             next_x_vals.push_back(previous_path_x[i]);
@@ -181,82 +251,14 @@ int main() {
             spline_y_vals.push_back(spline_xy[i][1]);
           }
           s.set_points(spline_x_vals,spline_y_vals);       
-          
-          // loop over all detected cars from sensor fusion
-          for (int i = 0; i < sensor_fusion.size(); ++i){
-            // check to see if there are other cars in my lane going slower than me
-            // check if the other's car d Frenet component is within the boundaries of my lane
-            if ( ( lane_id*lane_width < sensor_fusion[i][6]) &&  
-                 (sensor_fusion[i][6] < (lane_id+1)*lane_width) ){
-              // check if other car is in fromt of me, closer than the end of my previous path plus safety distance               
-              if ((sensor_fusion[i][5] < (end_path_s + safety_dist)) && 
-                  (sensor_fusion[i][5] > (car_s - 5.0))                 ){
-                // convert own car speed from MPH to m/s
-                // take the absolute value since orientation doesn't matter as long as all cars in one lane go in one direction
-                car_speed = fabs(car_speed * MPH_mps);
-                // calculate other's car absolute speed value in m/s              
-                front_car_speed = std::sqrt( pow(sensor_fusion[i][3],2.0) + pow(sensor_fusion[i][4],2.0) ); 
-                // calculate the diference in speed between the two cars
-                delta_speed = car_speed - front_car_speed;
-                // if car going slower than me, match its speed
-                if (delta_speed > 0.0){
-                  ref_speed = front_car_speed;
-                  front_car_slower = 1;
-                  std::cout<<"CAR IN MY LANE!!!"<<std::endl;
-                      //std::cout<<"my d = "<<car_d<<" other's d = "<<sensor_fusion[i][6]<<std::endl;
-                      //std::cout<<"my lane boundaries are "<<(lane_id*lane_width + 1)<<" and "<<((lane_id+1)*lane_width - 1)<<std::endl;
-                      //std::cout<<"my s = "<<car_s<<"other's s = "<<sensor_fusion[i][5]<<std::endl;
-                } 
-              }
-            }
-            // check for cars at my left in the eventuality of a lane change to the left
-            // make sure car is not in the left most lane
-            if (lane_id > 0){
-              // look for available space in the left lane
-              if ( ((lane_id - 1)*lane_width < sensor_fusion[i][6]) &&  
-                   (sensor_fusion[i][6] < (lane_id)*lane_width) &&
-                   (sensor_fusion[i][5] < (car_s + 10.0)) && 
-                   (sensor_fusion[i][5] > (car_s - 10.0))                ){
-              left_clear = 0;
-              }
-            }
-            // check for cars at my right in the eventuality of a lane change to the right
-            // make sure car is not in the right most lane
-            if (lane_id < 2){
-              // look for available space in the right lane
-              if ( ((lane_id)*lane_width < sensor_fusion[i][6]) &&  
-                   (sensor_fusion[i][6] < (lane_id+1)*lane_width) &&
-                   (sensor_fusion[i][5] < (car_s + 10.0)) && 
-                   (sensor_fusion[i][5] > (car_s - 10.0))                ){
-              right_clear = 0;
-              }
-            }
-          }     
-          // if the car in front of me slowed me down too much, change lanes 
-          if ( (front_car_slower == 1) && (car_speed < 0.85 * max_speed) ) {
-            change_lane = 1;
-          }
-          
-          if (change_lane == 1){
-            //try to change lanes to the left
-            if ((lane_id > 0) && (left_clear == 1)){
-              lane_id = lane_id - 1;
-              change_lane = 0;
-            }else if ((lane_id < 2) && (right_clear == 1)){
-              lane_id = lane_id + 1;
-              change_lane = 0;
-            }        
-          }
-                     
-     
+               
        
-      
-          
-          
-          if ((ctrl_speed > ref_speed + speed_hyst) && (ctrl_speed > 0.2)){
+          // gradually approach reference speed
+          // use of hysteresis to avoid unstable speed variation
+          if ((car_speed > ref_speed /*+ speed_hyst*/) && (car_speed > 0.0)){
             ctrl_speed -= max_accel * delta_time;
             std::cout<<"speed is decreasing "<<ctrl_speed<<std::endl;
-          } else if((ctrl_speed < ref_speed - speed_hyst) && (ref_speed <= max_speed)){
+          } else if((car_speed < ref_speed - speed_hyst) && (ref_speed <= max_speed)){
             ctrl_speed += 0.5 * max_accel * delta_time;            
             std::cout<<"speed is increasing "<<ctrl_speed<<std::endl;
           } else{
