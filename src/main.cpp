@@ -16,7 +16,7 @@ using nlohmann::json;
 using std::string;
 using std::vector;
 
-bool wayToSort(vector<double> i, vector<double> j) { return i[0] < j[0]; }
+//bool wayToSort(vector<double> i, vector<double> j) { return i[0] < j[0]; }
 
 int main() {
   uWS::Hub h;
@@ -102,22 +102,22 @@ int main() {
            * TODO: define a path made up of (x,y) points that the car will visit
            *   sequentially every .02 seconds
            */
-          vector <vector<double>> spline_xy;
+          //vector <vector<double>> spline_xy;
           vector<double> next_x_vals, next_y_vals, spline_x_vals, spline_y_vals;   
           vector<double> speed_per_lane = {50.00, 50.00, 50.00};
           const double MPH_mps = 0.447; //conversion factor from MPH to m/s 
-          const double lane_margin =  0.2;
+          //const double lane_margin =  0.2;
           const double safety_dist = 30.0;
           const double speed_hyst = 0.5; // speed hysteresis m/s
           const double lane_width = 4.0; //m
           const double delta_time = 0.02; //s = 20ms
           const double max_speed = 21.5; //m/s which is slightly lower than 50MPH
           const double max_accel = 10.0; // m/s^2
-          const double max_jerk = 10.0; // m/s^3  
-          double angle, pos_x, pos_y, pos_x2, pos_y2, spline_x, spline_y, next_x, next_y;
+          //const double max_jerk = 10.0; // m/s^3  
+          double angle, pos_x, pos_y, pos_x2, pos_y2, shift_x, shift_y, spline_x, spline_y, next_x, next_y;
           double ref_speed = max_speed;
-          double dist_inc;
-          double front_car_speed, delta_speed;
+          double dist_inc = 0.2;
+          double front_car_speed, delta_speed, x_further;
           int path_size = previous_path_x.size();
           int map_size = map_waypoints_x.size();
           int front_car_slower = 0;
@@ -147,8 +147,8 @@ int main() {
                 if (delta_speed > 0.0){
                   ref_speed = front_car_speed;
                   front_car_slower = 1;
-                  std::cout<<"CAR IN MY LANE GOING SLOWER!!!"<<std::endl;
-                  std::cout<<"my speed = "<<car_speed<<" other's speed = "<<front_car_speed<<std::endl;
+                  //std::cout<<"CAR IN MY LANE GOING SLOWER!!!"<<std::endl;
+                  //std::cout<<"my speed = "<<car_speed<<" other's speed = "<<front_car_speed<<std::endl;
                       //std::cout<<"my d = "<<car_d<<" other's d = "<<sensor_fusion[i][6]<<std::endl;
                       //std::cout<<"my lane boundaries are "<<(lane_id*lane_width + 1)<<" and "<<((lane_id+1)*lane_width - 1)<<std::endl;
                       //std::cout<<"my s = "<<car_s<<"other's s = "<<sensor_fusion[i][5]<<std::endl;
@@ -191,7 +191,7 @@ int main() {
           
           // if the car in front of me slowed me down too much, change lanes if a lane chane is not already in progress
           if ( (front_car_slower == 1) && 
-               (car_speed < 0.85 * max_speed) &&
+               (car_speed < 0.9 * max_speed) &&
                (change_lane == 0)               ) {
             change_lane = 1;
           }
@@ -227,16 +227,21 @@ int main() {
             pos_x = car_x;
             pos_y = car_y;
             angle = deg2rad(car_yaw);
+            std::cout<<"first 2 cycles angle = "<<angle<<std::endl;
             //go back one distance increment using angle
             pos_x2 = pos_x - dist_inc * cos(angle);
             pos_y2 = pos_y - dist_inc * sin(angle);
             // add last two points to spline list for better transition trajectory
             // make sure the pos x are not equal since spline crashes if not
-            if (pos_x == pos_x2){
-              pos_x2 -= 0.0001;
-            }
-            spline_xy.push_back({pos_x2,pos_y2});
-            spline_xy.push_back({pos_x,pos_y});
+            //if (pos_x == pos_x2){
+            //  pos_x2 -= 0.0001;
+            //}
+            spline_x_vals.push_back(pos_x2);
+            spline_y_vals.push_back(pos_y2);
+            spline_x_vals.push_back(pos_x);
+            spline_y_vals.push_back(pos_y);
+            //spline_xy.push_back({pos_x2,pos_y2});
+            //spline_xy.push_back({pos_x,pos_y});
           } else {
             // get last point from previous path
             pos_x = previous_path_x[path_size-1];
@@ -245,28 +250,47 @@ int main() {
             pos_x2 = previous_path_x[path_size-2];
             pos_y2 = previous_path_y[path_size-2];
             angle = atan2(pos_y-pos_y2,pos_x-pos_x2);
+            std::cout<<"computed angle = "<<angle<<std::endl;
             // add last two points to spline list for better transition trajectory
-            spline_xy.push_back({pos_x2,pos_y2});
-            spline_xy.push_back({pos_x,pos_y});
+            spline_x_vals.push_back(pos_x2);
+            spline_y_vals.push_back(pos_y2);
+            spline_x_vals.push_back(pos_x);
+            spline_y_vals.push_back(pos_y);
+            //spline_xy.push_back({pos_x2,pos_y2});
+            //spline_xy.push_back({pos_x,pos_y});
           }          
               
           // calculate spline points
-          // starting point is the next map waypoint to the end of previous path's end
+          // starting point is the next map waypoint from the end of the previous path
           start_point = NextWaypoint(pos_x, pos_y, angle, map_waypoints_x, map_waypoints_y);
-          // add more points to the spline list, this means looking at the road 150 meters ahead to calculate shape
+          // add more points to the spline list, this means looking at the road ahead to calculate shape
           // points should be aligned to the waypoints provided in the map and along the middle of the intended lane_id
-          for (int i = 0; i < 10; ++i) {
+          for (int i = 0; i < 3; ++i) {
             spline_x = map_waypoints_x[(start_point+i+1)%map_size] + ( (lane_width/2 + double(lane_id*lane_width)) * map_waypoints_dx[(start_point+i)%map_size] );
             spline_y = map_waypoints_y[(start_point+i+1)%map_size] + ( (lane_width/2 + double(lane_id*lane_width)) * map_waypoints_dy[(start_point+i)%map_size] );
-            spline_xy.push_back({spline_x,spline_y});
+            spline_x_vals.push_back(spline_x);
+            spline_y_vals.push_back(spline_y);
+            //spline_xy.push_back({spline_x,spline_y});
           }
           // sort spline_xy vector by the x value as expected by set_points in spline header function
-          std::sort(spline_xy.begin(), spline_xy.end(), wayToSort);
+          //std::sort(spline_xy.begin(), spline_xy.end(), wayToSort);
           // split x and y values from spline points
-          for (int i = 0; i < spline_xy.size(); ++i) {
-            spline_x_vals.push_back(spline_xy[i][0]);
-            spline_y_vals.push_back(spline_xy[i][1]);
-          }
+          //for (int i = 0; i < spline_xy.size(); ++i) {
+          //  spline_x_vals.push_back(spline_xy[i][0]);
+          //  spline_y_vals.push_back(spline_xy[i][1]);
+          //}  
+          std::cout<<"spline size = "<<spline_x_vals.size()<<std::endl;
+          
+          // transform spline points from map coordinates to car coordinates, from the perspective of the end point of the previous path 
+          for (int i = 0; i < spline_x_vals.size(); ++i) {
+            std::cout<<"spline x map coord = "<<spline_x_vals[i]<<std::endl;
+            shift_x = spline_x_vals[i] - pos_x;
+            shift_y = spline_y_vals[i] - pos_y;
+            spline_x_vals[i] = shift_x * cos(0 - angle) - shift_y * sin(0 - angle);
+            spline_y_vals[i] = shift_x * sin(0 - angle) + shift_y * cos(0 - angle);
+            std::cout<<"spline x car coord = "<<spline_x_vals[i]<<std::endl;
+          }         
+          // compute spine
           s.set_points(spline_x_vals,spline_y_vals);       
                
        
@@ -274,34 +298,42 @@ int main() {
           // use of hysteresis to avoid unstable speed variation
           if ((car_speed > ref_speed /*+ speed_hyst*/) && (car_speed > 0.0)){
             ctrl_speed -= max_accel * delta_time;
-            std::cout<<"speed is decreasing "<<ctrl_speed<<std::endl;
+            //std::cout<<"speed is decreasing "<<ctrl_speed<<std::endl;
           } else if((car_speed < ref_speed - speed_hyst) && (ref_speed <= max_speed)){
             ctrl_speed += 0.5 * max_accel * delta_time;            
-            std::cout<<"speed is increasing "<<ctrl_speed<<std::endl;
+            //std::cout<<"speed is increasing "<<ctrl_speed<<std::endl;
           } else{
-            std::cout<<"speed is kept "<<ctrl_speed<<std::endl;
+            //std::cout<<"speed is kept "<<ctrl_speed<<std::endl;
           }
           
           // calculate x distance increments based on desired velocity
-          // if angle is pi/2 still increment x a little bit
-          dist_inc = std::max(ctrl_speed * delta_time* cos(angle), 0.0001);         
-
+          dist_inc = std::max(ctrl_speed * delta_time, 0.0001);    
+          
+          shift_x = 0.0;
           //calculate car trajectory points
           for (int i = 0; i < 10-path_size; ++i) {    
             // advance dist_inc meters down the road        
-            next_x = pos_x + dist_inc*(i+1);
+            shift_x += dist_inc;
             // use spline to calculate y
-            next_y = s(next_x);
-            
+            shift_y = s(shift_x);
+            // transform back to map coordinates
+            next_x = shift_x * cos(angle) - shift_y * sin(angle);
+            next_y = shift_x * sin(angle) + shift_y * cos(angle);
+            next_x += pos_x;
+            next_y += pos_y;
+            //shift_x = x_further + pos_x;
+            //shift_y = next_y + pos_y;
+            //next_x = shift_x * cos(angle) - shift_y * sin(angle);
+            //next_y = shift_x * sin(angle) + shift_y * cos(angle);
             next_x_vals.push_back(next_x);
             next_y_vals.push_back(next_y);
           }
-          //std::cout<<"path size is = "<<next_x_vals.size()<<std::endl;
-          /*
+          std::cout<<"path size is = "<<next_x_vals.size()<<std::endl;
+          
           for (int i = 0; i<next_x_vals.size(); ++i){
-            std::cout<<"x = "<<next_x_vals[i]<<"y = "<<next_y_vals[i]<<std::endl;
+            std::cout<<"x = "<<next_x_vals[i]<<" y = "<<next_y_vals[i]<<std::endl;
           }
-            */       
+          //std::cout<<"car s is = "<<car_s<<std::endl;
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;
 
