@@ -107,7 +107,7 @@ int main() {
           vector<double> speed_per_lane = {50.00, 50.00, 50.00};
           const double MPH_mps = 0.447; //conversion factor from MPH to m/s 
           //const double lane_margin =  0.2;
-          const double safety_dist = 30.0;
+          const double safety_dist = 20.0;
           const double speed_hyst = 0.5; // speed hysteresis m/s
           const double lane_width = 4.0; //m
           const double delta_time = 0.02; //s = 20ms
@@ -162,8 +162,8 @@ int main() {
                  ((lane_id - 1) * lane_width < sensor_fusion[i][6]) &&  
                  (sensor_fusion[i][6] < lane_id * lane_width)         ){
               // look for available space in the left lane
-              if ( (sensor_fusion[i][5] < car_s + 10.0) && 
-                   (sensor_fusion[i][5] > car_s - 10.0)   ){       
+              if ( (sensor_fusion[i][5] < car_s + safety_dist) && 
+                   (sensor_fusion[i][5] > car_s - safety_dist)   ){       
                 left_clear = 0;
               }
               // check for traffic speed in the left lane, if any
@@ -178,8 +178,8 @@ int main() {
                  (lane_id * lane_width < sensor_fusion[i][6]) &&  
                  (sensor_fusion[i][6] < (lane_id+1) * lane_width) ){
               // look for available space in the right lane
-              if ( (sensor_fusion[i][5] < car_s + 10.0) && 
-                   (sensor_fusion[i][5] > car_s - 10.0)   ){
+              if ( (sensor_fusion[i][5] < car_s + safety_dist) && 
+                   (sensor_fusion[i][5] > car_s - safety_dist)   ){
                 right_clear = 0;
               }
               // check for traffic speed in the right lane, if any
@@ -311,7 +311,7 @@ int main() {
           
           shift_x = 0.0;
           //calculate car trajectory points
-          for (int i = 0; i < 10-path_size; ++i) {    
+          for (int i = 0; i < 30-path_size; ++i) {    
             // advance dist_inc meters down the road        
             shift_x += dist_inc;
             // use spline to calculate y
