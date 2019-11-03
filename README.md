@@ -92,7 +92,7 @@ In case the ego car is driving behind a slower vehicle, the possibility of a lan
             }
 ```
 
-Finally the lane change decision is made when if driving behind a slower vehicle, there is room to change lanes either to the left or to the right lane and the traffic in the destination lane is moving faster. There is no need to get behind a slower vehicle in another lane.
+Finally the lane change decision is made when if driving behind a slower vehicle, there is room to change lanes either to the left or to the right lane and the traffic in the destination lane is moving faster. There is no need to get behind a slow vehicle in another lane.
 
 ```
 // if the car in front of me slowed me down too much, change lanes if a lane chane is not already in progress
@@ -120,3 +120,93 @@ Finally the lane change decision is made when if driving behind a slower vehicle
 
 ## Path Planning Model
 
+The path is calculated as a sequence of (x,y) points in the map coordinate system that the ego car will visit one by one. The vechicle's speed is determinated by the spacing in between the (x,y) points given that each 20 ms cycle the car is goint to the next available point in the sequence.
+
+The car speed is controlled in increments of `max_accel * delta_time` to assure a smooth change in velocity from one cycle to another. The reference speed is the desired velocity. This is set to 50 MPH every cycle unless the ego car is trying to match the speed of the vehicle in front.
+
+A hysteresis is used to avoid undesired changes in velocity around the reference value and to allow for smooth driving when keeping a constant speed. 
+
+```
+          // gradually approach reference speed
+          // use of hysteresis to avoid unstable speed variation
+          if ((car_speed > ref_speed) && (car_speed > 0.0)){
+            ctrl_speed -= max_accel * delta_time;
+            //std::cout<<"speed is decreasing "<<ctrl_speed<<std::endl;
+          } else if((car_speed < ref_speed - speed_hyst) && (ref_speed <= max_speed)){
+            ctrl_speed += 0.5 * max_accel * delta_time;            
+            //std::cout<<"speed is increasing "<<ctrl_speed<<std::endl;
+          } else{
+            //std::cout<<"speed is kept "<<ctrl_speed<<std::endl;
+          }
+```
+
+The sequence of points can be calculated to go down the road in the middle of the selected lane or it can be processed to lay the path for a lane change.
+
+The sequence takes into account the current position of the ego vehicle followed by the next point in the map. The map points are about 30 meters from one another. A few following map points are taken and shifted in the desired lane by the use of dx and dy components of the d unit normal vector. The dx and dy are multiplied by the lane index times the lane width to get in the corresponding lane, and half a lane width is added to place the ego car in the middle of the lane.
+
+When a lane change is planned, the lane index is changed by one unit and these points are generated in the same manner.
+
+```
+          // calculate spline points
+          // starting point is the next map waypoint from the end of the previous path
+          start_point = NextWaypoint(pos_x, pos_y, angle, map_waypoints_x, map_waypoints_y);
+          // add more points to the spline list, this means looking at the road ahead to calculate shape
+          // points should be aligned to the waypoints provided in the map and along the middle of the intended lane_id
+          for (int i = 0; i < 3; ++i) {
+            spline_x = map_waypoints_x[(start_point+i+1)%map_size] + ( (lane_width/2 + double(lane_id*lane_width)) * map_waypoints_dx[(start_point+i)%map_size] );
+            spline_y = map_waypoints_y[(start_point+i+1)%map_size] + ( (lane_width/2 + double(lane_id*lane_width)) * map_waypoints_dy[(start_point+i)%map_size] );
+            spline_x_vals.push_back(spline_x);
+            spline_y_vals.push_back(spline_y);
+          } 
+```
+
+The trajectory needs to be smooth since abrupt changes in path will lead to an undesired jerk. If the car was following the exact points from above, a lane change would imply jumping directly in an adjacent lane with infinite acceleration. To avoid this an interpolation is done to allow a progressive change while generating intermediate points.
+
+[Cubic spline interpolation](https://kluge.in-chemnitz.de/opensource/spline/) is a great method for generating second degree polinominal trajectories that pass through each provided point. spline.h is used from this open source library.
+
+The map points are transforned into car coordinates and the spline is fitted to these points. The transformation into car coordinates is particularly usefull for cases when the road is going straight North and multiple y values correspond to the same x. It also makes things easier when the car is going South West and the x values are decreasing by the fact that it eliminates the need to sort points by x.
+The transformation is done through a [translation](https://en.wikipedia.org/wiki/Translation_of_axes) and a [rotation](https://en.wikipedia.org/wiki/Rotation_of_axes).
+
+```
+          // transform spline points from map coordinates to car coordinates, from the perspective of the end point of the previous path 
+          for (int i = 0; i < spline_x_vals.size(); ++i) {
+            std::cout<<"spline x map coord = "<<spline_x_vals[i]<<std::endl;
+            shift_x = spline_x_vals[i] - pos_x;
+            shift_y = spline_y_vals[i] - pos_y;
+            spline_x_vals[i] = shift_x * cos(0 - angle) - shift_y * sin(0 - angle);
+            spline_y_vals[i] = shift_x * sin(0 - angle) + shift_y * cos(0 - angle);
+            std::cout<<"spline x car coord = "<<spline_x_vals[i]<<std::endl;
+          }         
+          // compute spine
+          s.set_points(spline_x_vals,spline_y_vals);
+```
+
+The spline is used to generate the trajectory points. The distance ahead is increased by increments given by the driving speed. x is incremented directly since it's along the driving direction. y is computed using the spine function.
+The points are transformed back into the map coordinates and represent the future trajectory of the ego car. 
+
+```
+          // calculate x distance increments based on desired velocity
+          dist_inc = std::max(ctrl_speed * delta_time, 0.0001);    
+          
+          shift_x = 0.0;
+          //calculate car trajectory points
+          for (int i = 0; i < 10-path_size; ++i) {    
+            // advance dist_inc meters down the road        
+            shift_x += dist_inc;
+            // use spline to calculate y
+            shift_y = s(shift_x);
+            // transform back to map coordinates
+            next_x = shift_x * cos(angle) - shift_y * sin(angle);
+            next_y = shift_x * sin(angle) + shift_y * cos(angle);
+            next_x += pos_x;
+            next_y += pos_y;
+            //shift_x = x_further + pos_x;
+            //shift_y = next_y + pos_y;
+            //next_x = shift_x * cos(angle) - shift_y * sin(angle);
+            //next_y = shift_x * sin(angle) + shift_y * cos(angle);
+            next_x_vals.push_back(next_x);
+            next_y_vals.push_back(next_y);
+          }
+```
+
+At each cycle a new trajectory of points is generated. For a smoother driving experience each new trajectory is built as a continuation of the previous one. All the trajectory points that were not consumed from the previous cycle are copied into the new trajectory and more points are added to it.
