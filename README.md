@@ -1,7 +1,7 @@
 # Highway-Driving
 Path planning algorithm to safely navigate a vehicle around highway while changing lanes and limiting acceleration and jerk.
    
-![HighwayDriving](images/HighwayDriving.GIF)
+![HighwayDriving](images/HighwayDriving.gif)
 
 Highway driving is a topic of high interest in the self driving cars era. Driving long distance is time consuming and highway accidents are common due to fatigue and lane drifting. Premium car manufactures and trucking companies are heavily involved in implementing autonomous highway driving solutions.
 
