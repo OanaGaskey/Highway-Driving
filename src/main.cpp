@@ -147,11 +147,11 @@ int main() {
                 if (delta_speed > 0.0){
                   ref_speed = front_car_speed;
                   front_car_slower = 1;
-                  //std::cout<<"CAR IN MY LANE GOING SLOWER!!!"<<std::endl;
+                  std::cout<<"CAR IN MY LANE GOING SLOWER!!!"<<std::endl;
                   //std::cout<<"my speed = "<<car_speed<<" other's speed = "<<front_car_speed<<std::endl;
-                      //std::cout<<"my d = "<<car_d<<" other's d = "<<sensor_fusion[i][6]<<std::endl;
-                      //std::cout<<"my lane boundaries are "<<(lane_id*lane_width + 1)<<" and "<<((lane_id+1)*lane_width - 1)<<std::endl;
-                      //std::cout<<"my s = "<<car_s<<"other's s = "<<sensor_fusion[i][5]<<std::endl;
+                  //std::cout<<"my d = "<<car_d<<" other's d = "<<sensor_fusion[i][6]<<std::endl;
+                  //std::cout<<"my lane boundaries are "<<(lane_id*lane_width + 1)<<" and "<<((lane_id+1)*lane_width - 1)<<std::endl;
+                  //std::cout<<"my s = "<<car_s<<"other's s = "<<sensor_fusion[i][5]<<std::endl;
                 } 
               }
             }
@@ -162,8 +162,8 @@ int main() {
                  ((lane_id - 1) * lane_width < sensor_fusion[i][6]) &&  
                  (sensor_fusion[i][6] < lane_id * lane_width)         ){
               // look for available space in the left lane
-              if ( (sensor_fusion[i][5] < car_s + safety_dist) && 
-                   (sensor_fusion[i][5] > car_s - safety_dist)   ){       
+              if ( (sensor_fusion[i][5] < car_s + 2*safety_dist) && 
+                   (sensor_fusion[i][5] > car_s - safety_dist/2)   ){       
                 left_clear = 0;
               }
               // check for traffic speed in the left lane, if any
@@ -175,11 +175,11 @@ int main() {
             // check for cars at my right in the eventuality of a lane change to the right
             // make sure car is not in the right most lane            
             if ( (lane_id < 2) &&
-                 (lane_id * lane_width < sensor_fusion[i][6]) &&  
-                 (sensor_fusion[i][6] < (lane_id+1) * lane_width) ){
+                 ((lane_id+1) * lane_width < sensor_fusion[i][6]) &&  
+                 (sensor_fusion[i][6] < (lane_id+2) * lane_width) ){
               // look for available space in the right lane
-              if ( (sensor_fusion[i][5] < car_s + safety_dist) && 
-                   (sensor_fusion[i][5] > car_s - safety_dist)   ){
+              if ( (sensor_fusion[i][5] < car_s + 2*safety_dist) && 
+                   (sensor_fusion[i][5] > car_s - safety_dist/2)   ){
                 right_clear = 0;
               }
               // check for traffic speed in the right lane, if any
@@ -198,15 +198,20 @@ int main() {
           
           if (change_lane == 1){
             //try to change lanes to the left
+            std::cout<<"trying to change lanes from "<<lane_id<<std::endl;
             if ( (lane_id > 0) && 
-                 (left_clear == 1) &&
-                 (speed_per_lane[lane_id - 1] > car_speed + speed_hyst) ){
+                 (left_clear == 1) /*&&
+                 (speed_per_lane[lane_id - 1] > car_speed + speed_hyst)*/ ){
+              std::cout<<"left clear"<<std::endl;
               lane_id = lane_id - 1;
+              std::cout<<"new lane "<<lane_id<<std::endl;
               change_lane = 0;
             }else if ( (lane_id < 2) && 
-                       (right_clear == 1) &&
-                       (speed_per_lane[lane_id + 1] > car_speed + speed_hyst) ){
+                       (right_clear == 1) /*&&
+                       (speed_per_lane[lane_id + 1] > car_speed + speed_hyst)*/ ){
+              std::cout<<"right clear"<<std::endl;
               lane_id = lane_id + 1;
+              std::cout<<"new lane "<<lane_id<<std::endl;
               change_lane = 0;
             }        
           }
@@ -227,7 +232,7 @@ int main() {
             pos_x = car_x;
             pos_y = car_y;
             angle = deg2rad(car_yaw);
-            std::cout<<"first 2 cycles angle = "<<angle<<std::endl;
+            //std::cout<<"first 2 cycles angle = "<<angle<<std::endl;
             //go back one distance increment using angle
             pos_x2 = pos_x - dist_inc * cos(angle);
             pos_y2 = pos_y - dist_inc * sin(angle);
@@ -250,7 +255,7 @@ int main() {
             pos_x2 = previous_path_x[path_size-2];
             pos_y2 = previous_path_y[path_size-2];
             angle = atan2(pos_y-pos_y2,pos_x-pos_x2);
-            std::cout<<"computed angle = "<<angle<<std::endl;
+            // std::cout<<"computed angle = "<<angle<<std::endl;
             // add last two points to spline list for better transition trajectory
             spline_x_vals.push_back(pos_x2);
             spline_y_vals.push_back(pos_y2);
@@ -279,16 +284,16 @@ int main() {
           //  spline_x_vals.push_back(spline_xy[i][0]);
           //  spline_y_vals.push_back(spline_xy[i][1]);
           //}  
-          std::cout<<"spline size = "<<spline_x_vals.size()<<std::endl;
+          // std::cout<<"spline size = "<<spline_x_vals.size()<<std::endl;
           
           // transform spline points from map coordinates to car coordinates, from the perspective of the end point of the previous path 
           for (int i = 0; i < spline_x_vals.size(); ++i) {
-            std::cout<<"spline x map coord = "<<spline_x_vals[i]<<std::endl;
+            //std::cout<<"spline x map coord = "<<spline_x_vals[i]<<std::endl;
             shift_x = spline_x_vals[i] - pos_x;
             shift_y = spline_y_vals[i] - pos_y;
             spline_x_vals[i] = shift_x * cos(0 - angle) - shift_y * sin(0 - angle);
             spline_y_vals[i] = shift_x * sin(0 - angle) + shift_y * cos(0 - angle);
-            std::cout<<"spline x car coord = "<<spline_x_vals[i]<<std::endl;
+            //std::cout<<"spline x car coord = "<<spline_x_vals[i]<<std::endl;
           }         
           // compute spine
           s.set_points(spline_x_vals,spline_y_vals);       
@@ -328,11 +333,11 @@ int main() {
             next_x_vals.push_back(next_x);
             next_y_vals.push_back(next_y);
           }
-          std::cout<<"path size is = "<<next_x_vals.size()<<std::endl;
-          
+          //std::cout<<"path size is = "<<next_x_vals.size()<<std::endl;
+          /*
           for (int i = 0; i<next_x_vals.size(); ++i){
             std::cout<<"x = "<<next_x_vals[i]<<" y = "<<next_y_vals[i]<<std::endl;
-          }
+          }*/
           //std::cout<<"car s is = "<<car_s<<std::endl;
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;
