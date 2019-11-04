@@ -1,7 +1,7 @@
 # Highway-Driving
 Path planning algorithm to safely navigate a vehicle around highway while changing lanes and limiting acceleration and jerk.
    
-![FutureGIF](images/FutureGIF.JPG)
+![HighwayDriving](images/HighwayDriving.GIF)
 
 Highway driving is a topic of high interest in the self driving cars era. Driving long distance is time consuming and highway accidents are common due to fatigue and lane drifting. Premium car manufactures and trucking companies are heavily involved in implementing autonomous highway driving solutions.
 
@@ -53,12 +53,13 @@ Sensor Fusion object list is provided with the following data:
 To avoid rear end collision, all cars from sensor fusion are checked to determine if there is any in the same lane as ego car. If a slower front car is identyfied, than the ego car shall match the car's speed.
 
 ```
-// loop over all detected cars from sensor fusion
+          // loop over all detected cars from sensor fusion
           for (int i = 0; i < sensor_fusion.size(); ++i){
-            // check if the car's d Frenet is within the boundaries of my lane
+            // check to see if there are other cars in my lane going slower than me
+            // check if the other's car d Frenet component is within the boundaries of my lane
             if ( ( lane_id*lane_width < sensor_fusion[i][6]) &&  
                  (sensor_fusion[i][6] < (lane_id+1)*lane_width) ){
-              // check if the car is in fromt of me, closer than the end of my previous path plus safety distance               
+              // check if other car is in fromt of me, closer than the end of my previous path plus safety distance               
               if ((sensor_fusion[i][5] < (end_path_s + safety_dist)) && 
                   (sensor_fusion[i][5] > (car_s - 5.0))                 ){           
                 // calculate other's car absolute speed value in m/s              
@@ -69,33 +70,42 @@ To avoid rear end collision, all cars from sensor fusion are checked to determin
                 if (delta_speed > 0.0){
                   ref_speed = front_car_speed;
                   front_car_slower = 1;
-                  //std::cout<<"CAR IN MY LANE GOING SLOWER!!!"<<std::endl;
+                  std::cout<<"CAR IN MY LANE GOING SLOWER!!!"<<std::endl;
                 } 
               }
             }
-          }
 ```
 
-In case the ego car is driving behind a slower vehicle, the possibility of a lane change is evaluated. For example, for a left lane change there needs to be a gap in traffic in the left lane of at least 10 meters ahead of ego car and another 10 meters behind it. Checking for this gap assures the ego car won't colide laterraly into another vehicle driving by its side and also that it won't cut too short in front of another vehicle.
+In case the ego car is driving behind a slower vehicle, the possibility of a lane change is evaluated. For example, for a left lane change there needs to be a gap in traffic in the left lane of at least two times the safety distance ahead of ego car and half the safety distance behind it. Checking for this gap assures the ego car won't colide laterraly into another vehicle driving by its side and also that it won't cut too short in front of another vehicle.
 
 ```
-// check for cars at my left in the eventuality of a lane change to the left
+            // check for cars at my left in the eventuality of a lane change to the left
             // make sure car is not in the left most lane
             if ( (lane_id > 0) &&
                  ((lane_id - 1) * lane_width < sensor_fusion[i][6]) &&  
                  (sensor_fusion[i][6] < lane_id * lane_width)         ){
               // look for available space in the left lane
-              if ( (sensor_fusion[i][5] < car_s + 10.0) && 
-                   (sensor_fusion[i][5] > car_s - 10.0)   ){       
+              if ( (sensor_fusion[i][5] < car_s + 2*safety_dist) && 
+                   (sensor_fusion[i][5] > car_s - safety_dist/2)   ){       
                 left_clear = 0;
               }
-            }
+
+            // check for cars at my right in the eventuality of a lane change to the right
+            // make sure car is not in the right most lane            
+            if ( (lane_id < 2) &&
+                 ((lane_id+1) * lane_width < sensor_fusion[i][6]) &&  
+                 (sensor_fusion[i][6] < (lane_id+2) * lane_width) ){
+              // look for available space in the right lane
+              if ( (sensor_fusion[i][5] < car_s + 2*safety_dist) && 
+                   (sensor_fusion[i][5] > car_s - safety_dist/2)   ){
+                right_clear = 0;
+              }
 ```
 
-Finally the lane change decision is made when if driving behind a slower vehicle, there is room to change lanes either to the left or to the right lane and the traffic in the destination lane is moving faster. There is no need to get behind a slow vehicle in another lane.
+The lane change decision is made when if driving behind a slower vehicle, there is room to change lanes either to the left or to the right lane and the traffic in the destination lane is moving faster. There is no need to get behind a slow vehicle in another lane.
 
 ```
-// if the car in front of me slowed me down too much, change lanes if a lane chane is not already in progress
+          // if the car in front of me slowed me down too much, change lanes if a lane chane is not already in progress
           if ( (front_car_slower == 1) && 
                (car_speed < 0.9 * max_speed) &&
                (change_lane == 0)               ) {
@@ -142,22 +152,21 @@ A hysteresis is used to avoid undesired changes in velocity around the reference
 
 The sequence of points can be calculated to go down the road in the middle of the selected lane or it can be processed to lay the path for a lane change.
 
-The sequence takes into account the current position of the ego vehicle followed by the next point in the map. The map points are about 30 meters from one another. A few following map points are taken and shifted in the desired lane by the use of dx and dy components of the d unit normal vector. The dx and dy are multiplied by the lane index times the lane width to get in the corresponding lane, and half a lane width is added to place the ego car in the middle of the lane.
+The sequence takes into account the previous and the current position of the ego vehicle followed by three more points. The following points are taken 35 meters apart, along the s coordinate of the road. The d coordinate is also set to be in the middle of the desired lane. Function getXY() transform the given Frenet points in Cartesian coordinates. 
 
 When a lane change is planned, the lane index is changed by one unit and these points are generated in the same manner.
 
 ```
-          // calculate spline points
-          // starting point is the next map waypoint from the end of the previous path
-          start_point = NextWaypoint(pos_x, pos_y, angle, map_waypoints_x, map_waypoints_y);
-          // add more points to the spline list, this means looking at the road ahead to calculate shape
-          // points should be aligned to the waypoints provided in the map and along the middle of the intended lane_id
-          for (int i = 0; i < 3; ++i) {
-            spline_x = map_waypoints_x[(start_point+i+1)%map_size] + ( (lane_width/2 + double(lane_id*lane_width)) * map_waypoints_dx[(start_point+i)%map_size] );
-            spline_y = map_waypoints_y[(start_point+i+1)%map_size] + ( (lane_width/2 + double(lane_id*lane_width)) * map_waypoints_dy[(start_point+i)%map_size] );
-            spline_x_vals.push_back(spline_x);
-            spline_y_vals.push_back(spline_y);
-          } 
+          // calculate spline points ahead of ego vehicle, spaced by spline_dist
+          next_point = getXY(car_s +   spline_dist,(lane_width/2 + lane_width*lane_id),map_waypoints_s,map_waypoints_x,map_waypoints_y);
+          spline_x_vals.push_back(next_point[0]);
+          spline_y_vals.push_back(next_point[1]);
+          next_point = getXY(car_s + 2*spline_dist,(lane_width/2 + lane_width*lane_id),map_waypoints_s,map_waypoints_x,map_waypoints_y);
+          spline_x_vals.push_back(next_point[0]);
+          spline_y_vals.push_back(next_point[1]);
+          next_point = getXY(car_s + 3*spline_dist,(lane_width/2 + lane_width*lane_id),map_waypoints_s,map_waypoints_x,map_waypoints_y);
+          spline_x_vals.push_back(next_point[0]);
+          spline_y_vals.push_back(next_point[1]);
 ```
 
 The trajectory needs to be smooth since abrupt changes in path will lead to an undesired jerk. If the car was following the exact points from above, a lane change would imply jumping directly in an adjacent lane with infinite acceleration. To avoid this an interpolation is done to allow a progressive change while generating intermediate points.
@@ -186,11 +195,11 @@ The points are transformed back into the map coordinates and represent the futur
 
 ```
           // calculate x distance increments based on desired velocity
-          dist_inc = std::max(ctrl_speed * delta_time, 0.0001);    
+          dist_inc = ctrl_speed * delta_time;  
           
           shift_x = 0.0;
           //calculate car trajectory points
-          for (int i = 0; i < 10-path_size; ++i) {    
+          for (int i = 0; i < 30-path_size; ++i) {    
             // advance dist_inc meters down the road        
             shift_x += dist_inc;
             // use spline to calculate y
@@ -200,13 +209,16 @@ The points are transformed back into the map coordinates and represent the futur
             next_y = shift_x * sin(angle) + shift_y * cos(angle);
             next_x += pos_x;
             next_y += pos_y;
-            //shift_x = x_further + pos_x;
-            //shift_y = next_y + pos_y;
-            //next_x = shift_x * cos(angle) - shift_y * sin(angle);
-            //next_y = shift_x * sin(angle) + shift_y * cos(angle);
             next_x_vals.push_back(next_x);
             next_y_vals.push_back(next_y);
           }
 ```
 
 At each cycle a new trajectory of points is generated. For a smoother driving experience each new trajectory is built as a continuation of the previous one. All the trajectory points that were not consumed from the previous cycle are copied into the new trajectory and more points are added to it.
+
+## Simulation Video
+
+[![HighwayDriving](https://img.youtube.com/vi/QEajKfN8Oxo/0.jpg)](https://www.youtube.com/watch?v=QEajKfN8Oxo)
+ Click on the image to see the video!
+
+ To download the simulator go [here](https://github.com/udacity/self-driving-car-sim/releases).
